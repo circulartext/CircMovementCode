@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MAGNETO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Anton&family=Bangers&family=Luckiest+Guy&family=Oswald:wght@700&display=swap" rel="stylesheet">
+<style>
+  html, body { height: 100%; margin: 0; background: #ffffff; }
+  body { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  #w { width: 100%; max-width: 760px; height: 300px; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 8px; }
+  #row { display: flex; align-items: baseline; white-space: nowrap; padding: 20px 30px 0; }
+  #row span { display: inline-block; line-height: 1; text-align: center; }
+  #row .arm { position: relative; }
+  /* the M's chains: tiny copies of the M cast as shadows */
+  #row .arm::after {
+    content: attr(data-c); position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%); font-size: .22em; line-height: 1; letter-spacing: 0;
+    color: transparent; -webkit-text-stroke: 0; pointer-events: none; user-select: none;
+    text-shadow: var(--c, none);
+  }
+</style>
+</head>
+<body>
+<div id="w"><div id="row"></div></div>
+
+<script>
+// ============================================================
+//  MAGNETO  -  12 second loop
+//   0-3s       plain letters power up from both ends inward (M and O are the poles)
+//   4-6.2s     letters levitate and their shadow copies stretch toward the M on springs
+//   6.0s       the M winds up, the stage floods dark, the M strobes yellow / magenta / cyan
+//   6.6s +     rainbow chains of tiny M copies shoot out to every letter
+//              the letters are yanked into a violent orbit, bump into each other,
+//              and their design is drained into steel scrap lettering
+//   8.5s +     the chains snap, the letters are flung back, crash into each other
+//              and their original design returns
+//   10.4-12s   everything powers down to plain letters, loop restarts
+// ============================================================
+const RED="#c1121f",PUR="#6a2c91",PUR1="#3d1757",SIL="#9aa3ad",DK="#4b5563",WH="#ffffff",FLOOR="#d3d8e0",STEEL="#8a929c";
+const HOTC=["#ffd60a","#ff2e93","#00e5ff","#ffffff"];                  // the dramatic palette
+const r=v=>Math.round(v*2)/2,cl=(v,a,b)=>Math.max(a,Math.min(b,v)),ease=u=>u*u*(3-2*u);
+const SH=(x,y,c)=>`${r(x)}px ${r(y)}px 0 ${c}`;
+
+// [char, font, size, spacing, skew, margin(cm), lift, weight]   weight = how easily it is pulled (poles don't stretch)
+const L=[
+ ["M","Bowlby One",84,0,0,0,-2,0],
+ ["A","Bangers",52,1,-6,0.03,4,1.5],
+ ["G","Luckiest Guy",70,0,5,0.03,-3,0.9],
+ ["N","Anton",80,0,-4,0.03,1,0.8],
+ ["E","Oswald",48,1,6,0.03,5,1.6],
+ ["T","Bowlby One",66,0,-5,0.03,-1,0.9],
+ ["O","Luckiest Guy",76,0,0,0.03,-2,0]
+];
+const FACE=[RED,PUR,RED,PUR,RED,PUR,RED];
+const STRETCH=38,HOVER=16;
+const TC=i=>6.6+0.1*(i-1),TR=i=>8.5+0.08*(i-1);   // when the M connects to letter i, and when it lets go
+
+const w=document.getElementById("w"),row=document.getElementById("row");
+const sp=L.map((l,i)=>{
+  const s=document.createElement("span");s.textContent=l[0];
+  if(i===0){s.className="arm";s.setAttribute("data-c","M")}
+  s.style.cssText="font-family:Arial,sans-serif;font-size:18px;color:#777";   // every letter starts plain
+  row.appendChild(s);return s;
+});
+
+const Z=()=>new Array(7).fill(0);
+let gx=Z(),vg=Z(),hv=Z(),vh=Z(),ox=Z(),vo=Z(),hot=Z(),natW=Z(),sk=Z(),vs=Z(),hitT=Z().map(()=>-9),cool=Z(),prevT=-1,lastNow=performance.now();
+const resetAll=()=>{gx=Z();vg=Z();hv=Z();vh=Z();ox=Z();vo=Z();hot=Z();sk=Z();vs=Z();hitT=Z().map(()=>-9);cool=Z()};
+
+function tick(){
+  const now=performance.now(),dt=Math.min(0.05,(now-lastNow)/1000);lastNow=now;
+  const t=(now/1000)%12;
+  if(t<prevT)resetAll();
+
+  const g=t<3?t/3:t<10.6?1:(12-t)/1.4;                       // global power
+  const env=t<4?0:t<4.8?ease((t-4)/0.8):t<6.2?1:t<6.8?1-ease((t-6.2)/0.6):t<9.4?0:t<10?ease((t-9.4)/0.6):t<10.4?1:t<10.8?1-ease((t-10.4)/0.4):0;
+
+  // the stage floods dark for the power move
+  const ba=t<6?0:t<6.5?ease((t-6)/0.5)*0.92:t<9?0.92:t<9.8?0.92*(1-ease((t-9)/0.8)):0;
+  w.style.background=ba>0.01?`rgba(16,4,30,${ba.toFixed(2)})`:"transparent";
+  const pick=HOTC[Math.floor(t*14)%4];
+
+  // lock every span's width once powered so changing a letter's design never reflows the row
+  sp.forEach((s,i)=>{if(t<3.6){s.style.width="";natW[i]=s.offsetWidth}else if(t<10.6)s.style.width=natW[i]+"px";else s.style.width=""});
+  const home=sp.map((s,i)=>s.offsetLeft+natW[i]/2);
+
+  // how drained each letter is (design taken away), and how much the M has absorbed
+  const dq=Z();let absorb=0;
+  for(let i=1;i<7;i++){
+    const dr=t<TR(i)?ease(cl((t-TC(i)-0.3)/0.5,0,1)):1-ease(cl((t-TR(i)-0.2)/0.5,0,1));
+    dq[i]=Math.round(dr*4)/4;absorb+=dq[i]/6;
+  }
+  const windup=t>=6.0&&t<6.7?(t-6.0)/0.7:0;
+
+  // ---- physics: springs + real collisions between the letters ----
+  for(let i=1;i<7;i++)if(prevT>=0&&prevT<TR(i)&&t>=TR(i))vo[i]+=700;     // the fling on release
+  const hw=i=>natW[i]*0.46*(1-0.4*dq[i]);
+  const sub=4,h=dt/sub;
+  for(let s=0;s<sub;s++){
+    for(let i=1;i<7;i++){
+      const pulled=t>=TC(i)+0.15&&t<TR(i);
+      const tx=(home[0]+natW[0]*0.61+14+(i-1)*15)-home[i];
+      const tgt=pulled?tx:0,k=pulled?90:50,cc=pulled?8:5;
+      vo[i]+=(-k*(ox[i]-tgt)-cc*vo[i])*h;ox[i]+=vo[i]*h;
+      if(!pulled&&t<TC(i))ox[i]=0;
+    }
+    for(let pass=0;pass<2;pass++)for(let i=0;i<6;i++){
+      const j=i+1,gap=(home[j]+ox[j]-hw(j))-(home[i]+ox[i]+hw(i));
+      if(gap<0){
+        const mi=i===0?1e6:natW[i],mj=natW[j],M2=mi+mj,pen=-gap;
+        if(i===0)ox[j]+=pen;else{ox[i]-=pen*mj/M2;ox[j]+=pen*mi/M2}
+        const rv=(i===0?0:vo[i])-vo[j];
+        if(rv>0){
+          const imp=(1+0.6)*rv/(1/mi+1/mj);                             // restitution 0.6
+          if(i>0)vo[i]-=imp/mi;vo[j]+=imp/mj;
+          if(rv>45&&t>cool[j]){
+            cool[i]=cool[j]=t+0.12;hitT[i]=hitT[j]=t;hot[i]=hot[j]=t+0.14;
+            vs[i]+=-rv*0.9;vs[j]+=rv*0.9;                                // knocked askew
+          }
+        }
+      }
+    }
+  }
+
+  // ---- the letters ----
+  const lvs=[];
+  L.forEach((c,i)=>{
+    const d=Math.min(i,6-i),s=cl((g*5-d)/2.5,0,1),lv=Math.round(s*4)/4;lvs.push(lv);
+    const on=s>=0.5,e=sp[i].style;
+
+    if(c[7]>0){                                               // stretch + levitate toward the M
+      const wave=0.55+0.45*Math.sin(t*3.2-i*0.7);
+      const tgt=-env*wave*STRETCH*c[7]*(1-0.07*i);
+      vg[i]+=(-120*(gx[i]-tgt)-7*vg[i])*dt;gx[i]+=vg[i]*dt;
+      if(Math.abs(gx[i])>STRETCH*1.25*Math.min(1,c[7]+0.3)){vg[i]*=-0.8;gx[i]*=0.9;hot[i]=t+0.12}   // twang
+      const ht=env*wave*HOVER*(1-0.08*i);
+      vh[i]+=(-90*(hv[i]-ht)-6*vh[i])*dt;hv[i]=Math.max(0,hv[i]+vh[i]*dt);
+    }else{gx[i]=0;hv[i]=0}
+    vs[i]+=(-140*sk[i]-9*vs[i])*dt;sk[i]=cl(sk[i]+vs[i]*dt,-25,25);   // askew spring
+
+    const ten=Math.min(1,Math.abs(gx[i])/STRETCH);
+    const q=dq[i],scrap=q>=0.5,lvx=lv*(1-q);
+    const fsD=18+(c[2]-18)*lv;
+    let fs=scrap?Math.round(fsD*0.55):Math.round(fsD*(1-0.45*q));
+    let face=FACE[i];
+    if(i===0){
+      fs=Math.round(fsD*(1+0.25*absorb));
+      if(windup>0||absorb>0.1)face=pick;
+    }
+    const age=t-hitT[i],hit=age>=0&&age<0.3,rel=i>0&&t>=TR(i)&&t<TR(i)+0.35;
+
+    e.fontFamily=on?(scrap?"'Courier New',monospace":`'${c[1]}',Arial,sans-serif`):"Arial,sans-serif";
+    e.fontWeight=scrap?"700":"";
+    e.color=on?((t<hot[i]||rel)?pick:scrap?(Math.floor(t*6+i)%2?"#00e5ff":STEEL):face):"#777";
+    e.fontSize=fs+"px";
+    e.letterSpacing=scrap?"0px":Math.round(c[3]*lv)+"px";
+    e.marginLeft=(c[5]*lv).toFixed(3)+"cm";
+    const lean=Math.round(7*gx[i]/STRETCH),lift=c[6]*lv;
+    const act=i>0&&dq[i]>0;
+    const orx=act?5*Math.sin(t*9+i*1.3):0,orb=act?8*Math.cos(t*7+i*1.1):0;      // violent orbit wobble
+    const shk=hit?Math.round(5*Math.exp(-age*10)*Math.sin(t*70+i)):0;
+    const shift=i===0?-0.125*absorb*natW[0]:0;
+    e.transform=`translate(${Math.round(ox[i]+orx+shift)}px,${Math.round(lift-hv[i]+orb+shk)}px) skewX(${Math.round(((scrap?0:c[4]*lv*(1-q))+lean*lv*(1-q)+sk[i])/2)*2}deg)`;
+    e.webkitTextStroke=on?(scrap?"1px "+(Math.floor(t*6+i)%2?"#ff2e93":DK):(2*lv*(1-q)).toFixed(1)+"px "+WH):"0";
+
+    if(!(on&&lv>=0.75)){e.textShadow="none";return}
+    const sh=[];
+
+    // impact ripple: a ring of the letter's own copies bursting out of every bump
+    if(hit){const R=4+22*age/0.3;for(let a=0;a<10;a++){const an=a/10*Math.PI*2;sh.push(SH(Math.cos(an)*R,Math.sin(an)*R,HOTC[(a+Math.floor(t*20))%4]))}}
+
+    if(scrap){sh.push(SH(1,1,DK))}
+    else{
+      // silver chrome slab with a WHITE stripe carved through it (hot colors on the M while it absorbs)
+      const hotM=i===0&&(absorb>0.2||windup>0);
+      const n=Math.round(lvx*(4+(i===0?3*absorb:0))),sl=[];
+      for(let k=1;k<=n;k++)sl.push(SH(k*0.7,k*0.75,k<=2?(hotM?"#ff2e93":SIL):k<=3?WH:(hotM?"#5a0f2e":DK)));
+      if(n)sl.push(SH((n+1)*0.7,(n+1)*0.75,hotM?"#5a0f2e":DK));
+      sh.push(...sl);
+
+      // the letter's own shadow copy straining toward the M, white bands carved through it
+      if(i>0&&c[7]>0){
+        const m=Math.round(Math.abs(gx[i])/3),sg=Math.sign(gx[i]);
+        for(let z=1;z<=m;z++){const f=z/m,band=z%7<2&&z>3;sh.push(SH(sg*z*3,1.8*Math.sin(z*0.6-t*10+i)*f,band?WH:f<0.4?PUR1:f<0.75?PUR:(ten>0.65?RED:PUR)))}
+      }
+
+      // pole rings made of the pole's own copies (M pulls inward, O pushes outward)
+      if(i===0||(i===6&&q<0.5)){
+        const sgn=i===0?-1:1,RM=24+(i===0?14*absorb:0),spd=14*(1+2*absorb+2*windup),rings=[];
+        const hotR=(i===0&&(absorb>0.1||windup>0));
+        for(let j=0;j<3;j++){const R=(((t*spd*sgn+j*8)%RM)+RM)%RM;if(R>2)rings.push([R,j])}
+        rings.sort((a,b)=>a[0]-b[0]);
+        rings.forEach(([R,j])=>{for(let a=0;a<12;a++){const an=a/12*Math.PI*2;sh.push(SH(Math.cos(an)*R,Math.sin(an)*R,hotR?(j===1?WH:j===0?"#ffd60a":"#ff2e93"):(j===1?WH:j===0?PUR:RED)))}});
+      }
+
+      // grey floor shadow stays on the ground while a letter hovers
+      if(i>0&&q<0.5){const y=hv[i]-lift+9;sh.push(SH(0,y,FLOOR),SH(2,y,FLOOR),SH(4,y,FLOOR))}
+    }
+    e.textShadow=sh.join(",");
+  });
+
+  // ---- the grab: rainbow chains of tiny M copies from the M to each letter ----
+  const M=sp[0],chain=[];
+  if(lvs[0]>=0.75){
+    for(let i=1;i<7;i++){
+      const tr=TR(i);
+      const cp=t<TC(i)?0:t<TC(i)+0.4?ease((t-TC(i))/0.4):t<tr-0.1?1:t<tr+0.15?1-ease((t-(tr-0.1))/0.25):0;
+      if(cp<0.02)continue;
+      const snap=t>=tr-0.1&&t<tr+0.15?1:0;
+      const ex=(home[i]+ox[i]-home[0])*cp,n=Math.max(3,Math.round(Math.abs(ex)/5)),fl=Math.floor(t*18);
+      for(let z=n;z>=1;z--){
+        const u=z/n,x=ex*u;
+        const y=-14*Math.sin(Math.PI*u)*(1-0.5*(t>=TC(i)+0.5?1:0))+(3+8*snap)*Math.sin(z*0.5-t*14+i)*(0.5+u);
+        chain.push(SH(x,y,z%6<2?WH:HOTC[(z+fl)%4]));
+      }
+    }
+  }
+  M.style.setProperty("--c",chain.length?chain.join(","):"none");
+  prevT=t;
+}
+setInterval(tick,40);
+tick();
+</script>
+</body>
+</html>
